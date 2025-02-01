@@ -12,6 +12,7 @@ import PIL.Image as Image
 import torchvision
 import torchvision.transforms as transforms
 import seaborn as sns
+from joblib import load
 import warnings
 warnings.filterwarnings('ignore')
 import sys
@@ -97,37 +98,48 @@ def Pure_picture_activation(pic_dir, prepro_method, som, pca, pca_index, mean_fe
                     
                 
                 
-### sigma=6.2
+### Training Hopfield VTC model
+# som = BrainSOM.VTCSOM(200, 200, 4, sigma=6.2, learning_rate=1, neighborhood_function='gaussian')
+# som._weights = np.load('./som_sigma_6.2.npy')
+
+# Data = np.load('.\\Data.npy')
+# Data = zscore(Data)
+# pca = PCA()
+# pca.fit(Data)
+# Response_som, (mean_features,std_features) = Functional_map_pca(som, pca, [0,1,2,3])
+# Response_face = Response_som[:111,:,:]
+# Response_place = Response_som[111:172,:,:]
+# Response_body = Response_som[172:250,:,:]
+# Response_object = Response_som[250:,:,:]
+# Contrast_respense = [np.vstack((Response_place,Response_body,Response_object)).mean(axis=0),
+#                      np.vstack((Response_face,Response_body,Response_object)).mean(axis=0),
+#                      np.vstack((Response_face,Response_place,Response_object)).mean(axis=0),
+#                      np.vstack((Response_face,Response_place,Response_body)).mean(axis=0)]
+# threshold_cohend = 0.5
+# face_mask = som_mask(som, Response_face, Contrast_respense, 0, threshold_cohend)
+# place_mask = som_mask(som, Response_place, Contrast_respense, 1, threshold_cohend)
+# limb_mask = som_mask(som, Response_body, Contrast_respense, 2, threshold_cohend)
+# object_mask = som_mask(som, Response_object, Contrast_respense, 3, threshold_cohend)
+# training_pattern = np.array([face_mask.reshape(-1),
+#                              place_mask.reshape(-1),
+#                              limb_mask.reshape(-1),
+#                              object_mask.reshape(-1)])
+
+
+### Load training parameters
 som = BrainSOM.VTCSOM(200, 200, 4, sigma=6.2, learning_rate=1, neighborhood_function='gaussian')
 som._weights = np.load('./som_sigma_6.2.npy')
-
-Data = np.load('.\\Data.npy')
-Data = zscore(Data)
-pca = PCA()
-pca.fit(Data)
-Response_som, (mean_features,std_features) = Functional_map_pca(som, pca, [0,1,2,3])
-Response_face = Response_som[:111,:,:]
-Response_place = Response_som[111:172,:,:]
-Response_body = Response_som[172:250,:,:]
-Response_object = Response_som[250:,:,:]
-Contrast_respense = [np.vstack((Response_place,Response_body,Response_object)).mean(axis=0),
-                     np.vstack((Response_face,Response_body,Response_object)).mean(axis=0),
-                     np.vstack((Response_face,Response_place,Response_object)).mean(axis=0),
-                     np.vstack((Response_face,Response_place,Response_body)).mean(axis=0)]
-threshold_cohend = 0.5
-face_mask = som_mask(som, Response_face, Contrast_respense, 0, threshold_cohend)
-place_mask = som_mask(som, Response_place, Contrast_respense, 1, threshold_cohend)
-limb_mask = som_mask(som, Response_body, Contrast_respense, 2, threshold_cohend)
-object_mask = som_mask(som, Response_object, Contrast_respense, 3, threshold_cohend)
-training_pattern = np.array([face_mask.reshape(-1),
-                             place_mask.reshape(-1),
-                             limb_mask.reshape(-1),
-                             object_mask.reshape(-1)])
-
+face_mask = np.load('./face_mask.npy')
+limb_mask = np.load('./limb_mask.npy')
+place_mask = np.load('./place_mask.npy')
+object_mask = np.load('./object_mask.npy')
+mean = np.load('./mean.npy')
+std = np.load('./std.npy')
+pca = load('./pca.joblib')
 
 model = Hopfield_VTCSOM.Stochastic_Hopfield_nn(x=200, y=200, pflag=1, nflag=-1,
                                                patterns=[face_mask,place_mask,limb_mask,object_mask])
-model.reconstruct_w_with_structure_constrain([training_pattern], 'exponential', 0.023)
+model._w = np.load('./model_params.npy')
 
 
 
@@ -136,31 +148,6 @@ model.reconstruct_w_with_structure_constrain([training_pattern], 'exponential', 
 "Specialization vs Generality"
 ###############################################################################
 ###############################################################################
-def Get_mean_std(): 
-    class_name = ['face', 'place', 'body', 'object']
-    f1 = os.listdir(".\HCP_WM\\" + 'face')
-    if '.DS_Store' in f1:
-        f1.remove('.DS_Store')
-    f2 = os.listdir(".\HCP_WM\\" + 'place')
-    if '.DS_Store' in f2:
-        f2.remove('.DS_Store')
-    f3 = os.listdir(".\HCP_WM\\" + 'body')
-    if '.DS_Store' in f3:
-        f3.remove('.DS_Store')
-    f4 = os.listdir(".\HCP_WM\\" + 'object')
-    if '.DS_Store' in f4:
-        f4.remove('.DS_Store')
-    Response = []
-    for index,f in enumerate([f1,f2,f3,f4]):
-        for pic in f:
-            img = Image.open(".\HCP_WM\\"+class_name[index]+"\\"+pic).convert('RGB')
-            picimg = data_transforms['val'](img).unsqueeze(0) 
-            output = alexnet(picimg).data.numpy()
-            Response.append(output[0])
-    Response = np.array(Response) 
-    return Response.mean(axis=0), Response.std(axis=0)
-mean, std = Get_mean_std()
-
 def Recurrent_results(stim_file_path, mean,std):
     files = os.listdir(stim_file_path)
     Image_state_dict = dict()
@@ -186,11 +173,10 @@ def Recurrent_results(stim_file_path, mean,std):
     return images_response, Dynamic_states
 
 
-### Specialization
-images_response,Dynamic_states = Recurrent_results('all_stim\\', mean,std)
-### Generality
-images_response,Dynamic_states = Recurrent_results('ge_stim\\', mean,std)
-images_response,Dynamic_states = Recurrent_results('f4n\\', mean,std)
+### Test the Specialization and Generality
+#images_response,Dynamic_states = Recurrent_results('all_stim\\', mean,std)
+#images_response,Dynamic_states = Recurrent_results('ge_stim\\', mean,std)
+#images_response,Dynamic_states = Recurrent_results('f4n\\', mean,std)
 
 
 
@@ -324,12 +310,12 @@ class classifier(torch.nn.Module):
 
 def X_and_H(lamda):
     # 1000 stimuli state    
-    H = np.load(r'.\1000_H_'+lamda+'.npy')    
+    H = np.load(r'./1000_H_'+lamda+'.npy')    
     return H
 
 def X_and_H_se_ge(lamda, method='recurrent', state='stable_state'):
     # X se and ge
-    dir_name = r'.\lamda_' + lamda + '\\'
+    dir_name = r'./lamda_' + lamda + '/'
     if method=='recurrent':
         if state=='stable_state':
             images_response_path_list = [dir_name+'se_recurrent_images_response.npy',
@@ -525,14 +511,14 @@ H = X_and_H(lamda=lamda)
 H = H.reshape(16000)
 
 ## Paramatic-UMAP
-X_embedded = np.load('.\X_embedded_'+lamda+'_UMAP.npy')
-net_umap = torch.load('.\Paramatic_net_'+lamda)
+X_embedded = np.load('./X_embedded_'+lamda+'_UMAP.npy')
+net_umap = torch.load('./Paramatic_net_'+lamda)
 
 
 ## 1000 stimuli Path length
-average_path_length_0 = np.load(r'.\average_path_length_0.0.npy')
-average_path_length_023 = np.load(r'.\average_path_length_0.023.npy')
-average_path_length_1 = np.load(r'.\average_path_length_0.1.npy')
+average_path_length_0 = np.load(r'./average_path_length_0.0.npy')
+average_path_length_023 = np.load(r'./average_path_length_0.023.npy')
+average_path_length_1 = np.load(r'./average_path_length_0.1.npy')
 
 plt.figure(figsize=(4,6), dpi=300)
 plt.style.use('seaborn')
@@ -563,109 +549,3 @@ for i in outputs_ge_recurrent:
 points_to_surface(xnew,ynew,znew,X_new_list)
 
 
-
-
-
-
-
-"""Cognitive impenetrability"""
-###############################################################################
-def plot_condition_timeseries(Data, order_list, legend_list, color_list, label_colation=None):
-    def stats_value(x):
-        timeseries = x[:,:,np.where(face_mask==1)[0], np.where(face_mask==1)[1]].mean(axis=2)
-        return timeseries
-    # plot
-    plt.figure(figsize=(4,8),dpi=100)
-    plt.style.use('seaborn')
-    for index,i in enumerate(order_list):
-        data = Data[i]
-        images_response = stats_value(data)
-        plt.plot(range(images_response.shape[1]), 
-                 images_response.mean(0),
-                 label=legend_list[index], c=color_list[index])
-        plt.fill_between(range(images_response.shape[1]),
-                         images_response.mean(0)-(images_response.std(0)/np.sqrt(images_response.shape[0])),
-                         images_response.mean(0)+(images_response.std(0)/np.sqrt(images_response.shape[0])),
-                         alpha=0.3)
-    plt.ylim([-1,1])
-    plt.legend()
-    if label_colation!=None:
-        plt.legend(bbox_to_anchor=label_colation)
-        
-def plot_se_stable_state_bar(Data, order_list, legend_list, color_list):
-    def stats_value(x):
-        timeseries = x[:,:,np.where(face_mask==1)[0], np.where(face_mask==1)[1]].mean(axis=2)
-        return timeseries
-    # plot
-    images_response_mean = []
-    images_response_std = []
-    for index,i in enumerate(order_list):
-        data = Data[i]
-        images_response = stats_value(data)
-        images_response_mean.append(images_response.mean(0)[-1])
-        images_response_std.append(images_response.std(0)[-1]/np.sqrt(images_response.shape[0]))
-    plt.figure(figsize=(4,4), dpi=100)
-    plt.bar(range(10), images_response_mean, color=color_list)
-    plt.errorbar(range(10), images_response_mean, 
-                yerr=images_response_std,
-                fmt='.', ecolor='black',elinewidth=2,capsize=4)
-    plt.xticks(range(10),legend_list, rotation=70, fontsize=10)
-    plt.ylabel('activation', fontsize=10)
-                                   
-def plot_ge_stable_state_bar(Data, order_list, legend_list, color_list):
-    def stats_value(x):
-        timeseries = x[:,:,np.where(face_mask==1)[0], np.where(face_mask==1)[1]].mean(axis=2)
-        return timeseries
-    # plot
-    images_response_mean = []
-    images_response_std = []
-    for index,i in enumerate(order_list):
-        data = Data[i]
-        images_response = stats_value(data)
-        images_response_mean.append(images_response.mean(0)[-1])
-        images_response_std.append(images_response.std(0)[-1]/np.sqrt(images_response.shape[0]))
-    plt.figure(figsize=(4,4), dpi=100)
-    plt.bar(range(8), images_response_mean, color=color_list)
-    plt.errorbar(range(8), images_response_mean, 
-                yerr=images_response_std,
-                fmt='.', ecolor='black',elinewidth=2,capsize=4)
-    plt.xticks(range(8),legend_list, rotation=70, fontsize=10)
-    plt.ylabel('activation', fontsize=10)                                
-        
-    
-lamda = 0.023
-dir_name = './lamda_'+str(lamda)+'/'
-images_response_path_list = [dir_name+'se_face_feedback_Dynamic_states.npy',
-                             dir_name+'ge_object_feedback_Dynamic_states.npy',
-                             dir_name+'f4n_object_feedback_Dynamic_states.npy']
-
-### plot timeseris
-Dynamic_states = np.load(images_response_path_list[0])
-Data = []
-for i in np.arange(0,200,20):
-    Data.append(Dynamic_states[i:i+20])
-plot_condition_timeseries(Data,
-                          order_list=[4,2,3,5,0,9,1,6,7,8],
-                          legend_list=['face','cat','dog','lemon','ambulance','store','backpack','pitcher','plane','speaker'],
-                          color_list=['red','darkred','indianred','orange','grey','deepskyblue','royalblue','blue','darkblue','black'],
-                          label_colation=(0.6,0.7))
-
-
-Dynamic_states = np.load(images_response_path_list[1])
-Data = []
-Data.append(Dynamic_states[:10])
-Data.append(Dynamic_states[10:20])
-Data.append(Dynamic_states[20:30])
-Data.append(Dynamic_states[55:65])
-Data.append(Dynamic_states[35:45])
-Dynamic_states = np.load(images_response_path_list[2])
-for i in np.arange(0,75,15):
-    Data.append(Dynamic_states[i:i+15])
-plot_condition_timeseries(Data,
-                          order_list=[0,1,3,5,6,7,8,9],
-                          legend_list=['cat face','dog face','tiger face','front','profile','cheek','back','tool'],
-                          color_list=['bisque','gold','yellow','red','darkred','indianred','orange','darkblue'])
-
-
-
-  
