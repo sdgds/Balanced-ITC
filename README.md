@@ -1,5 +1,5 @@
 # Balanced-ITC
-The code for "Balancing Specificity and Generalization in Object Recognition through Structured Interconnectivity"
+The code for "Structured Interconnectivity Optimizes Neural Geometry for Balancing Specificity and Generalization in Object Recognition"
 
 It contains three python code files:
 * The first one is Hopfield_VTCSOM.py, which contains the building of the model in the article, training functions, etc.
